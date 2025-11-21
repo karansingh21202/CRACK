@@ -1,0 +1,5 @@
+{
+  "name": "Crack The Code",
+  "description": "A sleek, futuristic, and competitive multiplayer numeric puzzle game where players race to decipher a secret code. Features human-style text and voice feedback, multiple game modes, and a clean, minimal UI inspired by shadcn/ui.",
+  "requestFramePermissions": []
+}
