@@ -12,6 +12,10 @@ dotenv.config();
 const app = express();
 app.use(cors());
 
+app.get('/', (req, res) => {
+    res.send('Crack Code Server Running 🚀');
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
