@@ -75,7 +75,7 @@ export const triggerConfetti = () => {
   }
 
   const startTime = Date.now();
-  const duration = 3500; // 3.5 seconds duration
+  const duration = 2500; // 2.5 seconds duration
 
   const animate = () => {
     if (!document.body.contains(canvas)) return; // Safety check
