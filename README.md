@@ -3,7 +3,7 @@
   # CRACK THE CODE
   ### The Ultimate Logic Puzzle Game
   
-  **Developed by Karan **
+  Developed by Karan and team
 </div>
 
 ---
