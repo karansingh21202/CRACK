@@ -69,7 +69,7 @@ Special thanks to the following for their invaluable contributions and inspirati
 We love feedback! If you are a developer and want to improve this game, feel free to raise a Pull Request.
 
 For feedback, suggestions, or bug reports, please contact:
-**karan.singh5112002@gmail.com**
+**karansingh5112002@gmail.com**
 
 ---
 *Built with logic and passion.*
