@@ -140,7 +140,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ codeLength, onSubmitGuess,
   const isSubmitEnabled = guess.every(digit => digit !== '');
 
   return (
-    <div className={`flex flex-col items-center gap-4 lg:gap-6 w-full ${shake ? 'animate-[shake_0.5s_cubic-bezier(.36,.07,.19,.97)_both]' : ''}`}>
+    <div className={`flex flex-col items-center gap-1 lg:gap-6 w-full ${shake ? 'animate-[shake_0.5s_cubic-bezier(.36,.07,.19,.97)_both]' : ''}`}>
       <style>{`
             @keyframes shake {
                 10%, 90% { transform: translate3d(-1px, 0, 0); }
@@ -149,7 +149,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ codeLength, onSubmitGuess,
                 40%, 60% { transform: translate3d(4px, 0, 0); }
             }
         `}</style>
-      <div className="flex items-center justify-center gap-2 sm:gap-3 [perspective:1000px]" onPaste={handlePaste}>
+      <div className="flex items-center justify-center gap-1.5 sm:gap-3 [perspective:1000px]" onPaste={handlePaste}>
         {guess.map((digit, index) => (
           <input
             key={index}
@@ -162,7 +162,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ codeLength, onSubmitGuess,
             onChange={(e) => handleChange(index, e.target.value)}
             onKeyDown={(e) => handleKeyDown(index, e)}
             disabled={isGameWon || isSubmitting}
-            className={`w-10 h-12 sm:w-14 sm:h-16 text-2xl sm:text-3xl font-mono text-center font-bold rounded-xl border-2 shadow-sm transition-all duration-200 transform outline-none
+            className={`w-9 h-11 sm:w-14 sm:h-16 text-xl sm:text-3xl font-mono text-center font-bold rounded-xl border-2 shadow-sm transition-all duration-200 transform outline-none
                 ${digit
                 ? 'bg-white dark:bg-dark-card border-secondary-accent dark:border-primary-accent text-secondary-accent dark:text-primary-accent shadow-lg scale-105 -translate-y-1 animate-popIn'
                 : 'bg-light-input-bg dark:bg-dark-bg border-light-subtle-border dark:border-dark-subtle-border text-light-text dark:text-dark-text hover:border-secondary-accent/50 dark:hover:border-primary-accent/50'
@@ -177,7 +177,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ codeLength, onSubmitGuess,
       <Button
         onClick={handleSubmit}
         disabled={!isSubmitEnabled || isGameWon || isSubmitting}
-        className="w-full max-w-[200px] py-4 text-lg rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all"
+        className="w-full max-w-[200px] py-3 sm:py-4 text-base sm:text-lg rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all"
       >
         {isSubmitting ? 'Checking...' : 'Submit Code'}
       </Button>

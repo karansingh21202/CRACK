@@ -2,10 +2,6 @@ export interface Feedback {
     hits: number;
     pseudoHits: number;
 }
-export interface Feedback {
-    hits: number;
-    pseudoHits: number;
-}
 
 export interface Guess extends Feedback {
     id: number;
@@ -41,6 +37,8 @@ export interface Player {
     secretCode?: string;
     opponentId?: string;
     score: number;
+    sessionId?: string;
+    disconnectedAt?: number;
     scoreBreakdown?: {
         base: number;
         efficiency: number;

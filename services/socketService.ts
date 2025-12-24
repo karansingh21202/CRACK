@@ -26,11 +26,20 @@ let socket: Socket;
 
 export const socketService: SocketService = {
   connect: (onRoomUpdate, onGameStart, onGameOver, onPlayerLeft, onError) => {
-    const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:4000';
+    const SERVER_URL = import.meta.env.VITE_SERVER_URL;
+
+    // Generate/Retrieve Session ID
+    let sessionId = localStorage.getItem('crack_session_id');
+    if (!sessionId) {
+      sessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+      localStorage.setItem('crack_session_id', sessionId);
+    }
+    console.log("Session ID:", sessionId);
 
     if (!socket) {
       console.log("Connecting to real socket server at", SERVER_URL);
-      socket = io(SERVER_URL);
+      // Pass sessionId in auth handshake for future proofing, though we send in events for now
+      socket = io(SERVER_URL, { auth: { sessionId } });
 
       socket.on('connect', () => {
         console.log("Connected to server with ID:", socket.id);
@@ -72,11 +81,13 @@ export const socketService: SocketService = {
   },
 
   createRoom: (gameMode, playerName) => {
-    if (socket) socket.emit('create_room', { gameMode, playerName });
+    const sessionId = localStorage.getItem('crack_session_id');
+    if (socket) socket.emit('create_room', { gameMode, playerName, sessionId });
   },
 
   joinRoom: (roomId, playerName) => {
-    if (socket) socket.emit('join_room', { roomId, playerName });
+    const sessionId = localStorage.getItem('crack_session_id');
+    if (socket) socket.emit('join_room', { roomId, playerName, sessionId });
   },
 
   setReady: (roomId, playerId, isReady) => {

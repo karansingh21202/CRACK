@@ -27,7 +27,7 @@ export const GuessRow: React.FC<GuessRowProps> = ({ guess, showPlayerName = fals
                 </div>
                 <div className="flex gap-1 lg:gap-1.5">
                     {guess.code.split('').map((digit, i) => (
-                        <div key={i} className="w-6 h-6 lg:w-10 lg:h-10 flex items-center justify-center font-mono text-lg lg:text-2xl bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text rounded-md shadow-sm border border-light-subtle-border/50 dark:border-dark-subtle-border/50">
+                        <div key={i} className="w-5 h-5 lg:w-10 lg:h-10 flex items-center justify-center font-mono text-xs sm:text-sm lg:text-2xl bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text rounded-md shadow-sm border border-light-subtle-border/50 dark:border-dark-subtle-border/50">
                             {digit}
                         </div>
                     ))}

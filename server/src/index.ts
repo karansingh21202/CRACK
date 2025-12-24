@@ -26,11 +26,12 @@ const io = new Server(httpServer, {
 
 // --- GAME STATE ---
 const rooms: { [key: string]: Room } = {};
+const disconnectionTimers: Map<string, NodeJS.Timeout> = new Map();
 const BOT_NAMES = ['Cipher', 'Logic', 'Glitch', 'Binary'];
 
 // --- HELPERS ---
-const createPlayer = (id: string, name: string, isHost: boolean = false, isBot: boolean = false): Player => ({
-    id, name, isHost, isReady: isHost || isBot, guesses: [], isBot, score: 0
+const createPlayer = (id: string, name: string, isHost: boolean = false, isBot: boolean = false, sessionId?: string): Player => ({
+    id, name, isHost, isReady: isHost || isBot, guesses: [], isBot, score: 0, sessionId
 });
 
 const updatePlayerInRoom = (room: Room, playerId: string, updateFn: (p: Player) => Player): Room => {
@@ -105,9 +106,9 @@ const broadcastRoomUpdate = (roomId: string, room: Room, eventName: string = 'ro
 io.on('connection', (socket: Socket) => {
     console.log(`User connected: ${socket.id}`);
 
-    socket.on('create_room', ({ gameMode, playerName }: { gameMode: GameMode, playerName: string }) => {
+    socket.on('create_room', ({ gameMode, playerName, sessionId }: { gameMode: GameMode, playerName: string, sessionId?: string }) => {
         const roomId = Math.random().toString(36).substr(2, 4).toUpperCase();
-        const player = createPlayer(socket.id, playerName || 'Player 1', true);
+        const player = createPlayer(socket.id, playerName || 'Player 1', true, false, sessionId);
         let players = [player];
 
         const settings: RoomSettings = {
@@ -136,11 +137,42 @@ io.on('connection', (socket: Socket) => {
         console.log(`Room ${roomId} created by ${socket.id}`);
     });
 
-    socket.on('join_room', ({ roomId, playerName }: { roomId: string, playerName: string }) => {
+    socket.on('join_room', ({ roomId, playerName, sessionId }: { roomId: string, playerName: string, sessionId?: string }) => {
         const room = rooms[roomId];
         if (!room) {
             socket.emit('error', 'Room not found');
             return;
+        }
+
+        // Check for RECONNECTION via Session ID
+        if (sessionId) {
+            const existingPlayerIndex = room.players.findIndex(p => p.sessionId === sessionId);
+            if (existingPlayerIndex !== -1) {
+                const oldSocketId = room.players[existingPlayerIndex].id;
+
+                // Cancel disconnection timer if exists
+                if (disconnectionTimers.has(oldSocketId)) {
+                    clearTimeout(disconnectionTimers.get(oldSocketId));
+                    disconnectionTimers.delete(oldSocketId);
+                    console.log(`Cancelled disconnection timer for ${oldSocketId} (Reconnected as ${socket.id})`);
+                }
+
+                // Update Player Connection
+                const updatedPlayers = [...room.players];
+                updatedPlayers[existingPlayerIndex] = {
+                    ...updatedPlayers[existingPlayerIndex],
+                    id: socket.id, // Update to new socket ID
+                    disconnectedAt: undefined // Clear disconnection flag
+                };
+
+                const updatedRoom = { ...room, players: updatedPlayers };
+                rooms[roomId] = updatedRoom;
+
+                socket.join(roomId);
+                broadcastRoomUpdate(roomId, updatedRoom);
+                console.log(`Player reconnected: ${sessionId} -> ${socket.id}`);
+                return;
+            }
         }
 
         if (room.players.find(p => p.id === socket.id)) {
@@ -158,7 +190,7 @@ io.on('connection', (socket: Socket) => {
             return;
         }
 
-        const newPlayer = createPlayer(socket.id, playerName || `Player ${room.players.length + 1}`, false);
+        const newPlayer = createPlayer(socket.id, playerName || `Player ${room.players.length + 1}`, false, false, sessionId);
 
         let updatedRoom = {
             ...room,
@@ -392,43 +424,60 @@ io.on('connection', (socket: Socket) => {
         console.log(`User disconnected: ${socket.id}`);
 
         // Find the room the player was in
-        let roomIdToDelete: string | null = null;
-
         Object.keys(rooms).forEach(roomId => {
             const room = rooms[roomId];
             const playerIndex = room.players.findIndex(p => p.id === socket.id);
 
             if (playerIndex !== -1) {
-                // Remove player from room
-                const updatedPlayers = room.players.filter(p => p.id !== socket.id);
+                const player = room.players[playerIndex];
 
-                if (updatedPlayers.length === 0) {
-                    roomIdToDelete = roomId;
-                } else {
-                    // Update room with remaining players
-                    // If host left, assign new host (optional, for now just pick first)
-                    if (room.players[playerIndex].isHost && updatedPlayers.length > 0) {
-                        updatedPlayers[0].isHost = true;
+                // 1. Mark as disconnected immediately
+                const updatedPlayersAsDisconnected = [...room.players];
+                updatedPlayersAsDisconnected[playerIndex] = { ...player, disconnectedAt: Date.now() };
+                rooms[roomId] = { ...room, players: updatedPlayersAsDisconnected };
+
+                // Broadcast "Disconnected" state (Player stays in list)
+                broadcastRoomUpdate(roomId, rooms[roomId]);
+
+                // 2. Start 90s Grace Period Timer
+                const timer = setTimeout(() => {
+                    // Fetch fresh state
+                    const currentRoom = rooms[roomId];
+                    if (!currentRoom) return;
+
+                    // Execute Removal Logic
+                    console.log(`Connection timeout for ${socket.id}. Removing from room ${roomId}.`);
+
+                    const remainingPlayers = currentRoom.players.filter(p => p.id !== socket.id);
+
+                    if (remainingPlayers.length === 0) {
+                        delete rooms[roomId];
+                        console.log(`Room ${roomId} deleted (empty)`);
+                    } else {
+                        // Reassign Host if needed
+                        if (player.isHost && remainingPlayers.length > 0) {
+                            remainingPlayers[0].isHost = true;
+                        }
+
+                        let updatedRoom = { ...currentRoom, players: remainingPlayers };
+
+                        // Reset Duel Opponents
+                        if (updatedRoom.gameMode === 'DUEL') {
+                            updatedRoom.players = updatedRoom.players.map(p => ({ ...p, opponentId: undefined }));
+                        }
+
+                        rooms[roomId] = updatedRoom;
+                        broadcastRoomUpdate(roomId, updatedRoom);
+                        io.to(roomId).emit('player_left', { name: player.name });
                     }
 
-                    const updatedRoom = { ...room, players: updatedPlayers };
+                    disconnectionTimers.delete(socket.id);
 
-                    // If duel, reset opponentId if one player leaves
-                    if (updatedRoom.gameMode === 'DUEL') {
-                        updatedRoom.players = updatedRoom.players.map(p => ({ ...p, opponentId: undefined }));
-                    }
+                }, 90000); // 90 Seconds Timeout
 
-                    rooms[roomId] = updatedRoom;
-                    broadcastRoomUpdate(roomId, updatedRoom);
-                    io.to(roomId).emit('player_left', { name: room.players[playerIndex].name });
-                }
+                disconnectionTimers.set(socket.id, timer);
             }
         });
-
-        if (roomIdToDelete) {
-            delete rooms[roomIdToDelete];
-            console.log(`Room ${roomIdToDelete} deleted (empty)`);
-        }
     });
 });
 
