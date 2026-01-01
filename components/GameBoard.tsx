@@ -168,7 +168,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ codeLength, onSubmitGuess,
                 : 'bg-light-input-bg dark:bg-dark-bg border-light-subtle-border dark:border-dark-subtle-border text-light-text dark:text-dark-text hover:border-secondary-accent/50 dark:hover:border-primary-accent/50'
               }
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none
-                focus:border-secondary-accent dark:focus:border-primary-accent focus:ring-4 focus:ring-secondary-accent/20 dark:focus:ring-primary-accent/20 focus:scale-110 focus:-translate-y-2 focus:shadow-xl focus:z-10
+                focus:border-secondary-accent dark:focus:border-primary-accent focus:ring-4 focus:ring-secondary-accent/20 dark:focus:ring-primary-accent/20 focus:scale-110 focus:-translate-y-2 focus:shadow-glow dark:focus:shadow-[0_0_20px_rgba(203,166,247,0.4)] focus:z-10
               `}
           />
         ))}

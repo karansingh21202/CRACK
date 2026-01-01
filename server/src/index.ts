@@ -31,7 +31,7 @@ const BOT_NAMES = ['Cipher', 'Logic', 'Glitch', 'Binary'];
 
 // --- HELPERS ---
 const createPlayer = (id: string, name: string, isHost: boolean = false, isBot: boolean = false, sessionId?: string): Player => ({
-    id, name, isHost, isReady: isHost || isBot, guesses: [], isBot, score: 0, sessionId
+    id, name, isHost, isReady: isHost || isBot, guesses: [], isBot, score: 0, sessionId, speedRunScore: 0
 });
 
 const updatePlayerInRoom = (room: Room, playerId: string, updateFn: (p: Player) => Player): Room => {
@@ -106,16 +106,18 @@ const broadcastRoomUpdate = (roomId: string, room: Room, eventName: string = 'ro
 io.on('connection', (socket: Socket) => {
     console.log(`User connected: ${socket.id}`);
 
-    socket.on('create_room', ({ gameMode, playerName, sessionId }: { gameMode: GameMode, playerName: string, sessionId?: string }) => {
+    socket.on('create_room', ({ gameMode, playerName, sessionId, timerDuration, codeLength }: { gameMode: GameMode, playerName: string, sessionId?: string, timerDuration?: number, codeLength?: number }) => {
         const roomId = Math.random().toString(36).substr(2, 4).toUpperCase();
         const player = createPlayer(socket.id, playerName || 'Player 1', true, false, sessionId);
         let players = [player];
 
         const settings: RoomSettings = {
-            codeLength: 4,
+            codeLength: codeLength || 4,
             allowRepeats: false,
-            duelModeType: gameMode === 'DUEL' ? 'PVP' : undefined
+            duelModeType: gameMode === 'DUEL' ? 'PVP' : undefined,
+            timerDurationSeconds: gameMode === 'SPEED_RUN' ? (timerDuration || 180) : undefined
         };
+
 
         if (gameMode === 'DUEL') {
             // Future: Add bot logic here if needed.
@@ -131,10 +133,16 @@ io.on('connection', (socket: Socket) => {
             settings,
         };
 
+        // Initialize Battle Royale state if BR mode
+        if (gameMode === 'BATTLE_ROYALE') {
+            const { createInitialBRState } = require('./modes/battleRoyale/roundManager');
+            newRoom.battleRoyaleState = createInitialBRState(1); // Will be updated when game starts
+        }
+
         rooms[roomId] = newRoom;
         socket.join(roomId);
         broadcastRoomUpdate(roomId, newRoom);
-        console.log(`Room ${roomId} created by ${socket.id}`);
+        console.log(`Room ${roomId} created by ${socket.id} (mode: ${gameMode})`);
     });
 
     socket.on('join_room', ({ roomId, playerName, sessionId }: { roomId: string, playerName: string, sessionId?: string }) => {
@@ -234,6 +242,146 @@ io.on('connection', (socket: Socket) => {
 
         let updatedRoom = { ...room, gameState: GameState.Playing, startTime: Date.now() };
 
+        // Handle Speed Run Timer
+        if (room.gameMode === 'SPEED_RUN') {
+            const duration = room.settings.timerDurationSeconds || 180; // Default 3 mins
+            updatedRoom.gameEndTime = Date.now() + (duration * 1000);
+
+            // Set timeout to end game
+            setTimeout(() => {
+                const currentRoom = rooms[roomId];
+                if (currentRoom && currentRoom.gameState === GameState.Playing) {
+                    currentRoom.gameState = GameState.Won; // Or 'Finished'
+                    broadcastRoomUpdate(roomId, currentRoom, 'game_over');
+                }
+            }, duration * 1000);
+        }
+
+        // Handle Battle Royale initialization
+        if (room.gameMode === 'BATTLE_ROYALE') {
+            const { createInitialBRState, advanceRound, isGameOver } = require('./modes/battleRoyale/roundManager');
+            const { getPlayersToEliminate, getPlacement } = require('./modes/battleRoyale/elimination');
+            const brState = createInitialBRState(room.players.length);
+            updatedRoom.battleRoyaleState = brState;
+
+            // BR Round End Handler Function
+            const handleBRRoundEnd = (currentRoomId: string) => {
+                const currentRoom = rooms[currentRoomId];
+                if (!currentRoom || currentRoom.gameState !== GameState.Playing) return;
+                if (currentRoom.gameMode !== 'BATTLE_ROYALE' || !currentRoom.battleRoyaleState) return;
+
+                const brState = currentRoom.battleRoyaleState;
+
+                // Collect player performance for this round
+                const playerScores = currentRoom.players
+                    .filter(p => !p.isBot) // Exclude bots if any
+                    .map(p => {
+                        const bestGuess = p.guesses.reduce((best, g) =>
+                            g.hits > best.hits ? g : best,
+                            { hits: 0, pseudoHits: 0 }
+                        );
+                        return {
+                            playerId: p.id,
+                            bestHits: bestGuess.hits,
+                            guessCount: p.guesses.length,
+                            solved: p.guesses.some((g: any) => g.solved === true)
+                        };
+                    });
+
+                // Determine who to eliminate
+                const toEliminate = getPlayersToEliminate(playerScores, brState.round);
+                const alivePlayers = currentRoom.players.length - toEliminate.length;
+
+                // Emit elimination events to eliminated players
+                toEliminate.forEach((playerId: string) => {
+                    const placement = getPlacement(alivePlayers);
+                    io.to(playerId).emit('br_eliminated', {
+                        placement,
+                        totalPlayers: currentRoom.players.length,
+                        roundEliminated: brState.round,
+                        stats: {
+                            roundsSurvived: brState.round,
+                            totalRounds: brState.round, // So far
+                            codesGuessed: playerScores.find(p => p.playerId === playerId)?.solved ? 1 : 0,
+                            totalGuesses: playerScores.find(p => p.playerId === playerId)?.guessCount || 0,
+                            gameDuration: Math.floor((Date.now() - (currentRoom.startTime || Date.now())) / 1000)
+                        }
+                    });
+                });
+
+                // Remove eliminated players from active game
+                let updatedPlayers = currentRoom.players.filter(p => !toEliminate.includes(p.id));
+
+                // Check for game over (1 or 0 players left)
+                if (isGameOver(updatedPlayers.length)) {
+                    // Game over - declare winner
+                    const winner = updatedPlayers[0];
+                    if (winner) {
+                        const winnerStats = playerScores.find(p => p.playerId === winner.id);
+                        io.to(currentRoomId).emit('br_game_over', {
+                            winnerId: winner.id,
+                            winnerName: winner.name,
+                            placement: 1,
+                            totalPlayers: currentRoom.players.length,
+                            stats: {
+                                roundsSurvived: brState.round,
+                                totalRounds: brState.round,
+                                codesGuessed: winnerStats?.solved ? brState.round : brState.round - 1,
+                                totalGuesses: winnerStats?.guessCount || 0,
+                                gameDuration: Math.floor((Date.now() - (currentRoom.startTime || Date.now())) / 1000)
+                            }
+                        });
+                    }
+
+                    currentRoom.gameState = GameState.Won;
+                    rooms[currentRoomId] = currentRoom;
+                    broadcastRoomUpdate(currentRoomId, currentRoom, 'game_over');
+                    return;
+                }
+
+                // Advance to next round
+                const newBrState = advanceRound(brState, updatedPlayers.length, toEliminate);
+
+                // Reset guesses for surviving players
+                updatedPlayers = updatedPlayers.map(p => ({ ...p, guesses: [] }));
+
+                const updatedRoom = {
+                    ...currentRoom,
+                    players: updatedPlayers,
+                    battleRoyaleState: newBrState
+                };
+                rooms[currentRoomId] = updatedRoom;
+
+                // Broadcast round results
+                io.to(currentRoomId).emit('br_round_end', {
+                    roomId: currentRoomId,
+                    eliminated: toEliminate,
+                    playersAlive: updatedPlayers.length,
+                    nextRound: newBrState.round,
+                    nextCodeLength: newBrState.codeLength,
+                    nextDuration: newBrState.roundDuration
+                });
+
+                // Schedule next round start after brief delay
+                setTimeout(() => {
+                    io.to(currentRoomId).emit('br_round_start', {
+                        round: newBrState.round,
+                        codeLength: newBrState.codeLength,
+                        duration: newBrState.roundDuration,
+                        playersAlive: updatedPlayers.length
+                    });
+
+                    // Schedule next round end
+                    setTimeout(() => handleBRRoundEnd(currentRoomId), newBrState.roundDuration * 1000);
+                }, 5000); // 5 second break between rounds
+
+                broadcastRoomUpdate(currentRoomId, updatedRoom);
+            };
+
+            // Set initial round timer
+            setTimeout(() => handleBRRoundEnd(roomId), brState.roundDuration * 1000);
+        }
+
         if (room.gameMode === 'FFA' || room.gameMode === 'SINGLE' || (room.gameMode === 'DUEL' && room.settings.duelModeType === 'CPU')) {
             updatedRoom.secretCode = generateSecretCode(room.settings.codeLength, room.settings.allowRepeats);
         }
@@ -241,10 +389,24 @@ io.on('connection', (socket: Socket) => {
         updatedRoom.players = updatedRoom.players.map(p => ({
             ...p,
             guesses: [],
-            secretCode: (updatedRoom.gameMode === 'DUEL' && updatedRoom.settings.duelModeType === 'PVP') ? p.secretCode : undefined
+            // In Speed Run, everyone gets their OWN secret code initially
+            secretCode: (room.gameMode === 'SPEED_RUN')
+                ? generateSecretCode(room.settings.codeLength, room.settings.allowRepeats)
+                : ((updatedRoom.gameMode === 'DUEL' && updatedRoom.settings.duelModeType === 'PVP') ? p.secretCode : undefined)
         }));
 
         rooms[roomId] = updatedRoom;
+
+        // For BR, also emit the BR state
+        if (room.gameMode === 'BATTLE_ROYALE') {
+            io.to(roomId).emit('br_game_start', {
+                round: updatedRoom.battleRoyaleState?.round,
+                codeLength: updatedRoom.battleRoyaleState?.codeLength,
+                roundDuration: updatedRoom.battleRoyaleState?.roundDuration,
+                playersAlive: updatedRoom.battleRoyaleState?.playersAlive
+            });
+        }
+
         broadcastRoomUpdate(roomId, updatedRoom, 'game_start');
     });
 
@@ -255,6 +417,88 @@ io.on('connection', (socket: Socket) => {
         const updatedRoom = updatePlayerInRoom(room, socket.id, p => ({ ...p, secretCode: code }));
         rooms[roomId] = updatedRoom;
         broadcastRoomUpdate(roomId, updatedRoom);
+    });
+
+    // ============================================
+    // BATTLE ROYALE: Color Guess Submission
+    // ============================================
+    socket.on('br_submit_guess', ({ roomId, colors }: { roomId: string, colors: string[] }) => {
+        const room = rooms[roomId];
+        if (!room || room.gameState !== GameState.Playing) return;
+        if (room.gameMode !== 'BATTLE_ROYALE' || !room.battleRoyaleState) return;
+
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player) return;
+
+        const brState = room.battleRoyaleState;
+        const secretCode = brState.colorCode;
+
+        // Check if player already solved this round (prevent spam)
+        const alreadySolved = player.guesses.some((g: any) => g.solved === true);
+        if (alreadySolved) {
+            console.log(`[BR] Player ${socket.id} already solved this round. Ignoring.`);
+            return;
+        }
+
+        // Evaluate guess using colorCode utility
+        const { evaluateColorGuess } = require('./modes/battleRoyale/colorCode');
+        const { hits, pseudoHits } = evaluateColorGuess(colors, secretCode);
+        const solved = hits === secretCode.length;
+
+        // Create guess record
+        const feedbackMsg = solved
+            ? 'Perfect! You cracked it!'
+            : hits > 0
+                ? `${hits} exact, ${pseudoHits} close`
+                : pseudoHits > 0
+                    ? `${pseudoHits} close`
+                    : 'No matches';
+
+        const newGuess = {
+            id: player.guesses.length + 1,
+            code: colors.join(''),
+            colors: colors,
+            hits,
+            pseudoHits,
+            feedbackMessage: feedbackMsg,
+            solved,
+            playerId: player.id,
+            playerName: player.name,
+            timestamp: Date.now()
+        };
+
+        // Update player with new guess
+        const updatedRoom = updatePlayerInRoom(room, socket.id, p => ({
+            ...p,
+            guesses: [...p.guesses, newGuess]
+        }));
+        rooms[roomId] = updatedRoom;
+
+        // Send result back to player
+        socket.emit('br_guess_result', {
+            colors,
+            hits,
+            pseudoHits,
+            solved
+        });
+
+        // If solved, notify everyone
+        if (solved) {
+            io.to(roomId).emit('br_player_solved', {
+                playerId: player.id,
+                playerName: player.name,
+                guessCount: player.guesses.length + 1
+            });
+        }
+
+        // Broadcast player progress to room (for live updates)
+        const playerProgress = updatedRoom.players.map(p => ({
+            id: p.id,
+            name: p.name,
+            guessCount: p.guesses.length,
+            hasSolved: p.guesses.some((g: any) => g.solved === true)
+        }));
+        io.to(roomId).emit('br_player_progress', { players: playerProgress });
     });
 
     socket.on('submit_guess', ({ roomId, guessCode }: { roomId: string, guessCode: string }) => {
@@ -269,7 +513,12 @@ io.on('connection', (socket: Socket) => {
             const opponent = room.players.find(p => p.id === player.opponentId);
             if (!opponent || !opponent.secretCode) return;
             secretToGuess = opponent.secretCode;
+        } else if (room.gameMode === 'SPEED_RUN') {
+            // Speed Run: Player guesses their OWN allocated code
+            if (!player.secretCode) return;
+            secretToGuess = player.secretCode;
         }
+        // Now secretToGuess is set for ALL modes - process the guess
 
         const { hits, pseudoHits } = calculateFeedback(guessCode, secretToGuess);
         const feedbackMessage = generateFeedbackMessage(hits, pseudoHits, room.settings.codeLength);
@@ -290,6 +539,17 @@ io.on('connection', (socket: Socket) => {
         }));
 
         if (hits === room.settings.codeLength) {
+            // ANTI-SPAM: Check if player already solved this round (prevents duplicate scoring)
+            // Universal protection for ALL game modes
+            const alreadySolved = player.guesses.some(g => g.hits === room.settings.codeLength);
+            if (alreadySolved) {
+                // Player already cracked - ignore duplicate submissions
+                console.log(`[AntiSpam] Player ${socket.id} tried to re-submit correct code in ${room.gameMode}. Ignoring.`);
+                rooms[roomId] = updatedRoom; // Still save the guess for history
+                broadcastRoomUpdate(roomId, updatedRoom);
+                return;
+            }
+
             // Calculate Score
             const now = Date.now();
             const startTime = room.startTime || now; // Fallback to now if missing (shouldn't happen)
@@ -353,6 +613,26 @@ io.on('connection', (socket: Socket) => {
                         console.log(`[Panic] All players solved! Ending game early for room ${roomId}`);
                     }
                 }
+            } else if (room.gameMode === 'SPEED_RUN') {
+                // --- SPEED RUN LOGIC ---
+                // 1. Increment Speed Score
+                const currentSpeedScore = (player.speedRunScore || 0) + 1;
+
+                // 2. Generate NEW Secret Code for this player
+                const newSecretCode = generateSecretCode(room.settings.codeLength, room.settings.allowRepeats);
+
+                updatedRoom = updatePlayerInRoom(updatedRoom, socket.id, p => ({
+                    ...p,
+                    speedRunScore: currentSpeedScore,
+                    secretCode: newSecretCode,
+                    guesses: [] // Clear guesses for the new round
+                }));
+
+                rooms[roomId] = updatedRoom;
+                // Send specific event so frontend knows to show "Success" animation
+                io.to(roomId).emit('speed_run_success', { playerId: socket.id, newScore: currentSpeedScore });
+                broadcastRoomUpdate(roomId, updatedRoom);
+
             } else {
                 // Duel or Single Player - End immediately
                 updatedRoom.gameState = GameState.Won;
@@ -418,6 +698,9 @@ io.on('connection', (socket: Socket) => {
                 io.to(roomId).emit('player_left', { name: leavingPlayer.name });
             }
         }
+
+        // Have socket leave the room channel
+        socket.leave(roomId);
     });
 
     socket.on('disconnect', () => {

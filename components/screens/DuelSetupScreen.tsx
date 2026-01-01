@@ -45,7 +45,7 @@ export const DuelSetupScreen: React.FC<DuelSetupScreenProps> = ({ room, playerId
     }
 
     return (
-        <div className="w-full h-full flex items-center justify-center p-4">
+        <div className="w-full h-full flex items-center justify-center p-4 pb-safe">
             <Card className="w-full max-w-md p-8 text-center animate-fadeIn shadow-xl">
                 <h2 className="text-2xl font-bold text-secondary-accent dark:text-primary-accent mb-2">Set Your Secret Code</h2>
                 <p className="text-light-text dark:text-dark-text mb-6 opacity-80">Your opponent, <span className="font-bold">{opponent?.name || '...'}</span>, will try to guess this code.</p>

@@ -110,7 +110,7 @@ export const ShareResult = forwardRef<HTMLDivElement, ShareResultProps>(({ room,
                     Generated on {new Date().toLocaleDateString()}
                 </div>
                 <div className="text-right">
-                    <div className="text-lg font-black tracking-tight">crackthecode.com</div>
+                    <div className="text-lg font-black tracking-tight">crack-pi-ruddy.vercel.app</div>
                     <div className="text-xs text-purple-400 font-bold uppercase tracking-widest">Play for free</div>
                 </div>
             </div>

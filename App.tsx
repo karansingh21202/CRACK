@@ -23,6 +23,11 @@ import { LobbyScreen } from './components/screens/LobbyScreen';
 import { DuelSetupScreen } from './components/screens/DuelSetupScreen';
 import { GameScreen } from './components/screens/GameScreen';
 import { ResultModal } from './components/ResultModal';
+import { SpeedRunResultModal } from './components/SpeedRunResultModal';
+import { SpeedRunScreen } from './components/screens/SpeedRunScreen';
+import { BRLobby } from './components/battleRoyale/BRLobby';
+import { BRPlayScreen } from './components/battleRoyale/BRPlayScreen';
+import { BRScorecard } from './components/battleRoyale/BRScorecard';
 
 // Components required for Single Player mode (which is still rendered in App.tsx)
 import { GameBoard } from './components/GameBoard';
@@ -38,11 +43,13 @@ const App: React.FC = () => {
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [screen, setScreen] = useState<Screen>('landing');
     const [duelHeaderStyle, setDuelHeaderStyle] = useState<DuelHeaderStyle>('classic');
-    const [playerName, setPlayerName] = useState(() => localStorage.getItem('player_name') || 'Player');
+    const [playerName, setPlayerName] = useState(() => {
+        try { return localStorage.getItem('player_name') || 'Player'; } catch { return 'Player'; }
+    });
 
     // Persist player name
     useEffect(() => {
-        localStorage.setItem('player_name', playerName);
+        try { localStorage.setItem('player_name', playerName); } catch { /* incognito */ }
     }, [playerName]);
 
     const [room, setRoom] = useState<Room | null>(null);
@@ -55,6 +62,21 @@ const App: React.FC = () => {
     const [playerId, setPlayerId] = useState<string>('player-human');
     const [duelCountdownComplete, setDuelCountdownComplete] = useState(false);
 
+    // Battle Royale state
+    const BR_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE', 'BLACK'];
+    const [brColorGuesses, setBrColorGuesses] = useState<{ colors: string[], hits: number, pseudoHits: number }[]>([]);
+    const [brSecretCode, setBrSecretCode] = useState<string[]>([]);
+    const [brTimeLeft, setBrTimeLeft] = useState(60);
+    const [brHasSolved, setBrHasSolved] = useState(false);
+    const [brOtherPlayers, setBrOtherPlayers] = useState<{ id: string, name: string, guessCount: number, hasSolved: boolean }[]>([]);
+    const [brScorecard, setBrScorecard] = useState<{
+        show: boolean;
+        isWinner: boolean;
+        placement: number;
+        totalPlayers: number;
+        stats: { roundsSurvived: number; totalRounds: number; codesGuessed: number; totalGuesses: number; gameDuration: number; eliminatedInRound?: number };
+    } | null>(null);
+
     const { isMuted, toggleMute, speak, isTTSSupported } = useTTS();
     const { playWin, playPop, playClick } = useSound();
 
@@ -62,17 +84,100 @@ const App: React.FC = () => {
         setToast({ id: Date.now(), message, type });
     };
 
+    // Generate random BR secret code
+    const generateBrSecretCode = (length: number = 4): string[] => {
+        const code: string[] = [];
+        for (let i = 0; i < length; i++) {
+            code.push(BR_COLORS[Math.floor(Math.random() * BR_COLORS.length)]);
+        }
+        return code;
+    };
+
+    // Calculate BR feedback (hits and pseudoHits)
+    const calculateBrFeedback = (guess: string[], secret: string[]): { hits: number, pseudoHits: number } => {
+        let hits = 0;
+        let pseudoHits = 0;
+        const secretCopy = [...secret];
+        const guessCopy = [...guess];
+
+        // First pass: exact hits
+        for (let i = 0; i < guess.length; i++) {
+            if (guess[i] === secret[i]) {
+                hits++;
+                secretCopy[i] = '';
+                guessCopy[i] = '';
+            }
+        }
+
+        // Second pass: pseudo-hits
+        for (let i = 0; i < guessCopy.length; i++) {
+            if (guessCopy[i] === '') continue;
+            const idx = secretCopy.indexOf(guessCopy[i]);
+            if (idx !== -1) {
+                pseudoHits++;
+                secretCopy[idx] = '';
+            }
+        }
+
+        return { hits, pseudoHits };
+    };
+
+    // Handle BR color guess submission
+    const handleBrGuess = (colors: string[]) => {
+        if (!room) return;
+
+        // For multiplayer BR, send to server
+        if (room.id !== 'speedrun-solo' && room.id !== 'singleplayer') {
+            socketService.brSubmitGuess(room.id, colors);
+            return;
+        }
+
+        // For local/solo mode (fallback)
+        if (brSecretCode.length === 0) return;
+
+        const { hits, pseudoHits } = calculateBrFeedback(colors, brSecretCode);
+        setBrColorGuesses(prev => [...prev, { colors, hits, pseudoHits }]);
+
+        // Check if solved
+        if (hits === brSecretCode.length) {
+            playWin();
+            showToast('🎉 You cracked the code!', 'info');
+        } else {
+            playClick();
+        }
+    };
+
     const resetToLanding = useCallback(() => {
         setRoom(null);
         setScreen('landing');
         setDuelCountdownComplete(false);
+        // Reset BR state to prevent stale data
+        setBrColorGuesses([]);
+        setBrSecretCode([]);
+        setBrTimeLeft(60);
+        setBrHasSolved(false);
+        setBrOtherPlayers([]);
+        setBrScorecard(null);
         window.history.pushState({}, '', '/');
         playClick();
     }, [playClick]);
 
     const handleRoomUpdate = useCallback((newRoom: Room) => {
+        // For multiplayer rooms, get the actual socket ID
+        const currentSocketId = socketService.getSocketId();
+
+        // If this is a multiplayer room and we have a socket ID, use it (and update playerId state)
+        const effectivePlayerId = (newRoom.id !== 'singleplayer' && newRoom.id !== 'speedrun-solo' && currentSocketId)
+            ? currentSocketId
+            : playerId;
+
+        // If we got a new socket ID for multiplayer, update the playerId state
+        if (currentSocketId && effectivePlayerId === currentSocketId && playerId !== currentSocketId) {
+            setPlayerId(currentSocketId);
+        }
+
         // Check if we are still in the room
-        const amIInTheRoom = newRoom.players.some(p => p.id === playerId);
+        const amIInTheRoom = newRoom.players.some(p => p.id === effectivePlayerId);
         if (!amIInTheRoom) {
             resetToLanding();
             return;
@@ -125,9 +230,29 @@ const App: React.FC = () => {
         }
     }, [countdown, playPop]);
 
+    // BR Timer countdown
+    useEffect(() => {
+        if (room?.gameMode === 'BATTLE_ROYALE' && screen === 'game' && brTimeLeft > 0) {
+            const timer = setInterval(() => {
+                setBrTimeLeft(prev => Math.max(0, prev - 1));
+            }, 1000);
+            return () => clearInterval(timer);
+        }
+    }, [room?.gameMode, screen, brTimeLeft]);
+
     const handleGameStart = useCallback((startingRoom: Room) => {
         setRoom(startingRoom);
         setCountdown(3);
+
+        // Initialize Battle Royale if that's the game mode
+        if (startingRoom.gameMode === 'BATTLE_ROYALE') {
+            setBrSecretCode(generateBrSecretCode(4));
+            setBrColorGuesses([]);
+            setBrTimeLeft(startingRoom.battleRoyaleState?.roundDuration || 60);
+            setBrHasSolved(false);
+            setBrOtherPlayers([]);
+            setBrScorecard(null); // Reset scorecard from previous game
+        }
 
         // Use window.setInterval explicitly to avoid Node/Browser type ambiguity in some envs
         const timerId = window.setInterval(() => {
@@ -166,6 +291,87 @@ const App: React.FC = () => {
             }
         );
 
+        // Battle Royale event listeners
+        socketService.onBrGuessResult((data) => {
+            setBrColorGuesses(prev => [...prev, {
+                colors: data.colors,
+                hits: data.hits,
+                pseudoHits: data.pseudoHits
+            }]);
+
+            if (data.solved) {
+                setBrHasSolved(true);
+                playWin();
+                showToast('🎉 You cracked the code!', 'info');
+            } else {
+                playClick();
+            }
+        });
+
+        socketService.onBrPlayerSolved((data) => {
+            showToast(`${data.playerName} cracked it in ${data.guessCount} guesses!`, 'info');
+        });
+
+        // Live player progress updates
+        socketService.onBrPlayerProgress((data) => {
+            const currentSocketId = socketService.getSocketId();
+            // Filter out self, keep only other players
+            const others = data.players.filter(p => p.id !== currentSocketId);
+            setBrOtherPlayers(others);
+        });
+
+        // BR Elimination - Show scorecard for eliminated player
+        socketService.onBrEliminated((data) => {
+            setBrScorecard({
+                show: true,
+                isWinner: false,
+                placement: data.placement,
+                totalPlayers: data.totalPlayers,
+                stats: {
+                    ...data.stats,
+                    eliminatedInRound: data.roundEliminated
+                }
+            });
+            showToast(`💀 Eliminated in Round ${data.roundEliminated}!`, 'error');
+        });
+
+        // BR Game Over - Winner declared
+        socketService.onBrGameOver((data) => {
+            const currentSocketId = socketService.getSocketId();
+            const isWinner = data.winnerId === currentSocketId;
+
+            setBrScorecard({
+                show: true,
+                isWinner,
+                placement: isWinner ? 1 : data.placement,
+                totalPlayers: data.totalPlayers,
+                stats: data.stats
+            });
+
+            if (isWinner) {
+                playWin();
+                showToast('🏆 CHAMPION! You won!', 'info');
+            } else {
+                showToast(`${data.winnerName} wins the Battle Royale!`, 'info');
+            }
+        });
+
+        // BR Round Start - New round begins
+        socketService.onBrRoundStart((data) => {
+            // Reset for new round
+            setBrColorGuesses([]);
+            setBrHasSolved(false);
+            setBrTimeLeft(data.duration);
+            showToast(`Round ${data.round} - ${data.codeLength} colors, ${data.duration}s!`, 'info');
+        });
+
+        // BR Round End - Show who got eliminated
+        socketService.onBrRoundEnd((data) => {
+            if (data.eliminated.length > 0) {
+                showToast(`${data.eliminated.length} player(s) eliminated! ${data.playersAlive} remaining`, 'info');
+            }
+        });
+
         const path = window.location.pathname;
         const match = path.match(/\/room\/(\w+)/);
         if (match) {
@@ -173,33 +379,77 @@ const App: React.FC = () => {
             socketService.joinRoom(roomId, playerName);
         }
 
-        // Update playerId when socket connects (or if we are in single player, keep default)
+        // Update playerId when socket connects
         const interval = setInterval(() => {
             const socketId = socketService.getSocketId();
-            if (socketId && socketId !== playerId) {
-                setPlayerId(socketId);
+            if (socketId) {
+                setPlayerId(prev => {
+                    // Don't update if already set to same value
+                    if (prev === socketId) return prev;
+                    // DON'T override 'player-human' - that's set explicitly for solo rooms
+                    if (prev === 'player-human') return prev;
+                    // Return new socket ID for multiplayer
+                    return socketId;
+                });
             }
         }, 1000);
         return () => clearInterval(interval);
 
-    }, [handleRoomUpdate, resetToLanding, speak, handleGameStart, playWin, playerId, playerName]); // Added playerId and playerName to dependencies
+    }, [handleRoomUpdate, resetToLanding, speak, handleGameStart, playWin, playerName]); // REMOVED playerId from dependencies
 
-    const handleCreateRoom = useCallback((gameMode: GameMode) => {
+    const handleCreateRoom = useCallback((gameMode: GameMode, timerDuration?: number, isMultiplayer?: boolean, codeLength?: number) => {
+        const actualCodeLength = codeLength || 4;
+
         if (gameMode === 'SINGLE') {
+            // Force playerId to player-human BEFORE creating room
+            setPlayerId('player-human');
             const newRoom: Room = {
                 id: 'singleplayer',
                 players: [{ id: 'player-human', name: 'You', isHost: true, isReady: true, guesses: [], score: 0 }],
                 gameMode: 'SINGLE',
                 gameState: GameState.Playing,
-                secretCode: generateSecretCode(4, false),
-                settings: { codeLength: 4, allowRepeats: false },
+                secretCode: generateSecretCode(actualCodeLength, false),
+                settings: { codeLength: actualCodeLength, allowRepeats: false },
             };
             setRoom(newRoom);
             setScreen('game');
             setIsRestarting(true);
             setTimeout(() => setIsRestarting(false), 300);
+        } else if (gameMode === 'SPEED_RUN') {
+            if (isMultiplayer) {
+                // Multiplayer Speed Run - create room via socket with code length
+                socketService.createRoom(gameMode, playerName, timerDuration, actualCodeLength);
+            } else {
+                // Solo Speed Run - local mode
+                // Force playerId to player-human BEFORE creating room
+                setPlayerId('player-human');
+                const duration = timerDuration || 180; // Default 3 mins
+                const newRoom: Room = {
+                    id: 'speedrun-solo',
+                    players: [{
+                        id: 'player-human',
+                        name: 'You',
+                        isHost: true,
+                        isReady: true,
+                        guesses: [],
+                        score: 0,
+                        speedRunScore: 0,
+                        secretCode: generateSecretCode(actualCodeLength, false)
+                    }],
+                    gameMode: 'SPEED_RUN',
+                    gameState: GameState.Playing,
+                    secretCode: '',
+                    settings: { codeLength: actualCodeLength, allowRepeats: false, timerDurationSeconds: duration },
+                    startTime: Date.now(),
+                    gameEndTime: Date.now() + (duration * 1000),
+                };
+                setRoom(newRoom);
+                setScreen('game');
+                setIsRestarting(true);
+                setTimeout(() => setIsRestarting(false), 300);
+            }
         } else {
-            socketService.createRoom(gameMode, playerName);
+            socketService.createRoom(gameMode, playerName, timerDuration);
         }
     }, [playerName]);
 
@@ -239,6 +489,42 @@ const App: React.FC = () => {
             setRoom({ ...room, players: [updatedPlayer], gameState: newGameState });
             speak(feedbackMessage);
             playWin(); // Trigger visuals handled in ResultModal
+        } else if (room.gameMode === 'SPEED_RUN' && room.id === 'speedrun-solo') {
+            // Local Speed Run handling
+            const player = room.players[0];
+            const secretCode = player.secretCode || '';
+
+            const { hits, pseudoHits } = calculateFeedback(guessCode, secretCode);
+            const feedbackMessage = generateFeedbackMessage(hits, pseudoHits, room.settings.codeLength);
+            const newGuess = {
+                id: player.guesses.length + 1,
+                code: guessCode,
+                hits,
+                pseudoHits,
+                feedbackMessage,
+                playerId: 'player-human',
+                playerName: 'You'
+            };
+
+            if (hits === room.settings.codeLength) {
+                // Correct! Increment score and generate new code
+                const newScore = (player.speedRunScore || 0) + 1;
+                const newSecretCode = generateSecretCode(room.settings.codeLength, room.settings.allowRepeats);
+
+                const updatedPlayer = {
+                    ...player,
+                    guesses: [], // Clear guesses for new code
+                    speedRunScore: newScore,
+                    secretCode: newSecretCode
+                };
+
+                setRoom({ ...room, players: [updatedPlayer] });
+                speak(`Code ${newScore} cracked!`);
+            } else {
+                // Wrong guess, add to history
+                const updatedPlayer = { ...player, guesses: [...player.guesses, newGuess] };
+                setRoom({ ...room, players: [updatedPlayer] });
+            }
         } else {
             socketService.submitGuess(room.id, playerId, guessCode);
         }
@@ -271,22 +557,45 @@ const App: React.FC = () => {
         });
     };
 
+    // Monitor Speed Run Solo timer and end game when time expires
     useEffect(() => {
-        const savedTheme = localStorage.getItem('theme') as Theme | null;
-        const hasSeenOnboarding = localStorage.getItem('onboarding_seen');
-        if (savedTheme) setTheme(savedTheme);
-        else if (window.matchMedia?.('(prefers-color-scheme: dark)')?.matches) setTheme('dark');
-        if (!hasSeenOnboarding) setShowOnboarding(true);
+        if (!room || room.id !== 'speedrun-solo' || room.gameState !== GameState.Playing || !room.gameEndTime) {
+            return;
+        }
+
+        const checkTimer = () => {
+            const now = Date.now();
+            if (now >= room.gameEndTime!) {
+                // Time's up! End the game
+                setRoom(prev => {
+                    if (!prev) return null;
+                    return { ...prev, gameState: GameState.Won };
+                });
+            }
+        };
+
+        const interval = setInterval(checkTimer, 500);
+        return () => clearInterval(interval);
+    }, [room?.id, room?.gameState, room?.gameEndTime]);
+
+    useEffect(() => {
+        try {
+            const savedTheme = localStorage.getItem('theme') as Theme | null;
+            const hasSeenOnboarding = localStorage.getItem('onboarding_seen');
+            if (savedTheme) setTheme(savedTheme);
+            else if (window.matchMedia?.('(prefers-color-scheme: dark)')?.matches) setTheme('dark');
+            if (!hasSeenOnboarding) setShowOnboarding(true);
+        } catch { /* incognito */ }
     }, []);
 
     useEffect(() => {
         document.documentElement.classList.toggle('dark', theme === 'dark');
-        localStorage.setItem('theme', theme);
+        try { localStorage.setItem('theme', theme); } catch { /* incognito */ }
     }, [theme]);
 
     const handleOnboardingClose = () => {
         setShowOnboarding(false);
-        localStorage.setItem('onboarding_seen', 'true');
+        try { localStorage.setItem('onboarding_seen', 'true'); } catch { /* incognito */ }
     };
 
     const toggleTheme = () => {
@@ -412,6 +721,20 @@ const App: React.FC = () => {
 
         switch (screen) {
             case 'lobby':
+                // Battle Royale has its own lobby
+                if (room.gameMode === 'BATTLE_ROYALE') {
+                    const player = room.players.find(p => p.id === playerId);
+                    return <BRLobby
+                        roomId={room.id}
+                        playerCount={room.players.length}
+                        minPlayers={2} // Lower for testing, normally 10
+                        maxPlayers={50}
+                        isHost={player?.isHost || false}
+                        onStart={() => socketService.startGame(room.id)}
+                        onLeave={() => setShowLeaveLobbyConfirm(true)}
+                        players={room.players.map(p => ({ id: p.id, name: p.name }))}
+                    />;
+                }
                 return <LobbyScreen
                     room={room}
                     playerId={playerId}
@@ -428,6 +751,75 @@ const App: React.FC = () => {
                     onCountdownComplete={() => setDuelCountdownComplete(true)}
                 />;
             case 'game':
+                // Battle Royale Color Game
+                if (room.gameMode === 'BATTLE_ROYALE') {
+                    return (
+                        <>
+                            <BRPlayScreen
+                                roomId={room.id}
+                                playerCount={room.players.length}
+                                codeLength={room.battleRoyaleState?.codeLength || 4}
+                                roundNumber={room.battleRoyaleState?.round || 1}
+                                timeLeft={brTimeLeft}
+                                onSubmitGuess={handleBrGuess}
+                                onLeave={() => setShowQuitConfirm(true)}
+                                guessHistory={brColorGuesses}
+                                otherPlayers={brOtherPlayers}
+                                hasSolved={brHasSolved}
+                            />
+                            {brScorecard?.show && (
+                                <BRScorecard
+                                    placement={brScorecard.placement}
+                                    totalPlayers={brScorecard.totalPlayers}
+                                    isWinner={brScorecard.isWinner}
+                                    playerName={playerName}
+                                    stats={brScorecard.stats}
+                                    onPlayAgain={() => {
+                                        // Go back to BR lobby (reset game state, stay in room)
+                                        setBrScorecard(null);
+                                        setBrColorGuesses([]);
+                                        setBrHasSolved(false);
+                                        setBrOtherPlayers([]);
+                                        // Request room reset to lobby state
+                                        if (room) {
+                                            socketService.resetGame(room.id);
+                                        }
+                                    }}
+                                    onShare={() => {
+                                        showToast('Screenshot copied/downloaded!', 'info');
+                                    }}
+                                    onHome={() => {
+                                        // Go to main menu
+                                        setBrScorecard(null);
+                                        resetToLanding();
+                                    }}
+                                    onBackToLobby={() => {
+                                        // Go back to BR lobby
+                                        setBrScorecard(null);
+                                        setBrColorGuesses([]);
+                                        setBrHasSolved(false);
+                                        setBrOtherPlayers([]);
+                                        if (room) {
+                                            socketService.resetGame(room.id);
+                                        }
+                                    }}
+                                />
+                            )}
+                        </>
+                    );
+                }
+
+                if (room.gameMode === 'SPEED_RUN') {
+                    return (
+                        <SpeedRunScreen
+                            room={room}
+                            playerId={playerId}
+                            onSubmitGuess={handleSubmitGuess}
+                            onInvalidGuess={(msg) => showToast(msg, 'error')}
+                            onQuit={() => setShowQuitConfirm(true)}
+                        />
+                    );
+                }
                 return room.gameMode === 'SINGLE' ? renderSinglePlayerGame() : (
                     <GameScreen
                         room={room}
@@ -491,7 +883,25 @@ const App: React.FC = () => {
                 confirmText="Leave"
             />
 
-            <ResultModal room={room} playerId={playerId} onPlayAgain={room?.gameMode === 'SINGLE' ? () => handleCreateRoom('SINGLE') : () => room && socketService.resetGame(room.id)} />
+            {/* Result Modals - Speed Run uses different modal */}
+            {room?.gameMode === 'SPEED_RUN' ? (
+                <SpeedRunResultModal
+                    room={room}
+                    playerId={playerId}
+                    onPlayAgain={() => {
+                        if (room?.id === 'speedrun-solo') {
+                            // Solo mode - create new local room
+                            handleCreateRoom('SPEED_RUN', room?.settings.timerDurationSeconds, false, room?.settings.codeLength);
+                        } else {
+                            // Multiplayer mode - reset existing room via socket
+                            if (room) socketService.resetGame(room.id);
+                        }
+                    }}
+                    onHome={resetToLanding}
+                />
+            ) : (
+                <ResultModal room={room} playerId={playerId} onPlayAgain={room?.gameMode === 'SINGLE' ? () => handleCreateRoom('SINGLE') : () => room && socketService.resetGame(room.id)} />
+            )}
             {/* Toast Notification */}
             <Toast toast={toast} onDismiss={() => setToast(null)} />
 

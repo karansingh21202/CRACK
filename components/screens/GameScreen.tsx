@@ -38,7 +38,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({ room, playerId, onSubmit
     const hasPlayerSolved = player.guesses.some(g => g.hits === room.settings.codeLength);
 
     return (
-        <div className="w-full h-full flex flex-col lg:grid lg:grid-cols-12 gap-4 lg:gap-6 p-2 lg:p-6 animate-fadeIn overflow-hidden">
+        <div className="w-full h-full flex flex-col lg:grid lg:grid-cols-12 gap-4 lg:gap-6 p-2 lg:p-6 pb-safe animate-fadeIn overflow-hidden">
 
             {room.gameMode === 'DUEL' && opponent && (
                 <DuelHeader

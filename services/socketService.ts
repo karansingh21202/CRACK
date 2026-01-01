@@ -10,7 +10,7 @@ interface SocketService {
     onPlayerLeft: (data: { name: string }) => void,
     onError: (message: string) => void
   ) => void;
-  createRoom: (gameMode: GameMode, playerName: string) => void;
+  createRoom: (gameMode: GameMode, playerName: string, timerDuration?: number, codeLength?: number) => void;
   joinRoom: (roomId: string, playerName: string) => void;
   startGame: (roomId: string) => void;
   setDuelCode: (roomId: string, playerId: string, code: string) => void;
@@ -20,6 +20,15 @@ interface SocketService {
   getSocketId: () => string | null;
   resetGame: (roomId: string) => void;
   leaveRoom: (roomId: string) => void;
+  // Battle Royale
+  brSubmitGuess: (roomId: string, colors: string[]) => void;
+  onBrGuessResult: (callback: (data: { colors: string[], hits: number, pseudoHits: number, solved: boolean }) => void) => void;
+  onBrPlayerSolved: (callback: (data: { playerId: string, playerName: string, guessCount: number }) => void) => void;
+  onBrRoundEnd: (callback: (data: { roomId: string, eliminated: string[], playersAlive: number, nextRound: number, nextCodeLength: number, nextDuration: number }) => void) => void;
+  onBrPlayerProgress: (callback: (data: { players: { id: string, name: string, guessCount: number, hasSolved: boolean }[] }) => void) => void;
+  onBrEliminated: (callback: (data: { placement: number, totalPlayers: number, roundEliminated: number, stats: any }) => void) => void;
+  onBrGameOver: (callback: (data: { winnerId: string, winnerName: string, placement: number, totalPlayers: number, stats: any }) => void) => void;
+  onBrRoundStart: (callback: (data: { round: number, codeLength: number, duration: number, playersAlive: number }) => void) => void;
 }
 
 let socket: Socket;
@@ -28,21 +37,32 @@ export const socketService: SocketService = {
   connect: (onRoomUpdate, onGameStart, onGameOver, onPlayerLeft, onError) => {
     const SERVER_URL = import.meta.env.VITE_SERVER_URL;
 
-    // Generate/Retrieve Session ID
-    let sessionId = localStorage.getItem('crack_session_id');
-    if (!sessionId) {
-      sessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
-      localStorage.setItem('crack_session_id', sessionId);
+    // Generate/Retrieve Session ID - wrapped in try-catch for incognito mode
+    let sessionId: string;
+    try {
+      sessionId = localStorage.getItem('crack_session_id') || '';
+      if (!sessionId) {
+        sessionId = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
+        localStorage.setItem('crack_session_id', sessionId);
+      }
+    } catch (e) {
+      // localStorage blocked (incognito or privacy settings)
+      console.warn('localStorage unavailable, using temporary session ID');
+      sessionId = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
     }
     console.log("Session ID:", sessionId);
 
     if (!socket) {
       console.log("Connecting to real socket server at", SERVER_URL);
-      // Pass sessionId in auth handshake for future proofing, though we send in events for now
       socket = io(SERVER_URL, { auth: { sessionId } });
 
       socket.on('connect', () => {
         console.log("Connected to server with ID:", socket.id);
+      });
+
+      socket.on('connect_error', (error) => {
+        console.error("Socket connection error:", error);
+        onError('Failed to connect to server');
       });
     } else {
       console.log("Reusing existing socket connection");
@@ -52,6 +72,14 @@ export const socketService: SocketService = {
       socket.off('game_over');
       socket.off('player_left');
       socket.off('error');
+      // Also clean up BR listeners to prevent duplicates
+      socket.off('br_guess_result');
+      socket.off('br_player_solved');
+      socket.off('br_round_end');
+      socket.off('br_round_start');
+      socket.off('br_player_progress');
+      socket.off('br_eliminated');
+      socket.off('br_game_over');
     }
 
     socket.on('room_update', (room: Room) => {
@@ -80,13 +108,15 @@ export const socketService: SocketService = {
     });
   },
 
-  createRoom: (gameMode, playerName) => {
-    const sessionId = localStorage.getItem('crack_session_id');
-    if (socket) socket.emit('create_room', { gameMode, playerName, sessionId });
+  createRoom: (gameMode, playerName, timerDuration, codeLength) => {
+    let sessionId: string | null = null;
+    try { sessionId = localStorage.getItem('crack_session_id'); } catch (e) { /* incognito */ }
+    if (socket) socket.emit('create_room', { gameMode, playerName, sessionId, timerDuration, codeLength });
   },
 
   joinRoom: (roomId, playerName) => {
-    const sessionId = localStorage.getItem('crack_session_id');
+    let sessionId: string | null = null;
+    try { sessionId = localStorage.getItem('crack_session_id'); } catch (e) { /* incognito */ }
     if (socket) socket.emit('join_room', { roomId, playerName, sessionId });
   },
 
@@ -120,5 +150,59 @@ export const socketService: SocketService = {
 
   leaveRoom: (roomId) => {
     if (socket) socket.emit('leave_room', { roomId });
+  },
+
+  // Battle Royale methods
+  brSubmitGuess: (roomId: string, colors: string[]) => {
+    if (socket) socket.emit('br_submit_guess', { roomId, colors });
+  },
+
+  onBrGuessResult: (callback: (data: { colors: string[], hits: number, pseudoHits: number, solved: boolean }) => void) => {
+    if (socket) {
+      socket.off('br_guess_result'); // Remove old listener first
+      socket.on('br_guess_result', callback);
+    }
+  },
+
+  onBrPlayerSolved: (callback: (data: { playerId: string, playerName: string, guessCount: number }) => void) => {
+    if (socket) {
+      socket.off('br_player_solved');
+      socket.on('br_player_solved', callback);
+    }
+  },
+
+  onBrRoundEnd: (callback: (data: { roomId: string, eliminated: string[], playersAlive: number, nextRound: number, nextCodeLength: number, nextDuration: number }) => void) => {
+    if (socket) {
+      socket.off('br_round_end');
+      socket.on('br_round_end', callback);
+    }
+  },
+
+  onBrPlayerProgress: (callback: (data: { players: { id: string, name: string, guessCount: number, hasSolved: boolean }[] }) => void) => {
+    if (socket) {
+      socket.off('br_player_progress');
+      socket.on('br_player_progress', callback);
+    }
+  },
+
+  onBrEliminated: (callback: (data: { placement: number, totalPlayers: number, roundEliminated: number, stats: any }) => void) => {
+    if (socket) {
+      socket.off('br_eliminated');
+      socket.on('br_eliminated', callback);
+    }
+  },
+
+  onBrGameOver: (callback: (data: { winnerId: string, winnerName: string, placement: number, totalPlayers: number, stats: any }) => void) => {
+    if (socket) {
+      socket.off('br_game_over');
+      socket.on('br_game_over', callback);
+    }
+  },
+
+  onBrRoundStart: (callback: (data: { round: number, codeLength: number, duration: number, playersAlive: number }) => void) => {
+    if (socket) {
+      socket.off('br_round_start');
+      socket.on('br_round_start', callback);
+    }
   }
 };

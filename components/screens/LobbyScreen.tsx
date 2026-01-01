@@ -47,7 +47,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ room, playerId, onStar
     };
 
     return (
-        <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto bg-gray-50 dark:bg-[#09090b] relative transition-colors duration-500">
+        <div className="w-full h-full flex items-center justify-center p-4 pb-safe overflow-y-auto bg-gray-50 dark:bg-[#09090b] relative transition-colors duration-500">
             {/* Background Abstract Lines Effect (Dark Mode Only) */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none hidden dark:block">
                 {/* Broad Straight Line 1 */}

@@ -49,7 +49,23 @@ export const ResultModal: React.FC<ResultModalProps> = ({ room, playerId, onPlay
 
     const guessCount = winner?.guesses.length ?? 0;
     const winningGuess = winner?.guesses.find(g => g.hits === room.settings.codeLength);
-    const codeToDisplay = room.secretCode || winningGuess?.code || "????";
+
+    // For Duel PVP: Get player and opponent to show both codes
+    const currentPlayer = room.players.find(p => p.id === playerId);
+    const opponent = room.gameMode === 'DUEL'
+        ? room.players.find(p => p.id !== playerId)
+        : null;
+
+    // Determine which code to display based on game mode
+    // Duel PVP: Show opponent's code (what you were trying to crack)
+    // Other modes: Show room.secretCode or winning guess
+    const codeToDisplay = room.gameMode === 'DUEL' && room.settings.duelModeType === 'PVP'
+        ? (opponent?.secretCode || winningGuess?.code || "????")
+        : (room.secretCode || winningGuess?.code || "????");
+
+    // For Duel PVP: Also get your code (what opponent was trying to crack)
+    const yourCodeInDuel = currentPlayer?.secretCode || "????";
+
     const winnerName = winner?.name || 'Unknown';
 
     const handleShare = async () => {
@@ -178,6 +194,11 @@ export const ResultModal: React.FC<ResultModalProps> = ({ room, playerId, onPlay
                         <div className="mb-6 bg-light-bg dark:bg-dark-bg rounded-xl p-4 border border-light-subtle-border dark:border-dark-subtle-border">
                             {isPlayerWinner ? (
                                 <>
+                                    {/* Show the secret code that was cracked */}
+                                    <div className="flex items-center justify-center gap-2 mb-3">
+                                        <span className="text-xs text-light-text/50 dark:text-dark-text/50 uppercase tracking-wider">The Code:</span>
+                                        <span className="font-mono font-black text-xl text-secondary-accent dark:text-primary-accent tracking-widest">{codeToDisplay}</span>
+                                    </div>
                                     <h3 className="text-sm font-bold uppercase text-light-text/60 dark:text-dark-text/60 mb-3 tracking-wider">Score Breakdown</h3>
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between">
@@ -201,6 +222,11 @@ export const ResultModal: React.FC<ResultModalProps> = ({ room, playerId, onPlay
                                 </>
                             ) : (
                                 <>
+                                    {/* Show the secret code that was cracked */}
+                                    <div className="flex items-center justify-center gap-2 mb-3">
+                                        <span className="text-xs text-light-text/50 dark:text-dark-text/50 uppercase tracking-wider">The Code:</span>
+                                        <span className="font-mono font-black text-xl text-secondary-accent dark:text-primary-accent tracking-widest">{codeToDisplay}</span>
+                                    </div>
                                     <h3 className="text-sm font-bold uppercase text-light-text/60 dark:text-dark-text/60 mb-3 tracking-wider text-center">Head-to-Head</h3>
                                     <div className="grid grid-cols-3 gap-2 text-sm mb-2 border-b border-light-subtle-border dark:border-dark-subtle-border pb-2">
                                         <div className="text-left font-bold text-light-text/40 dark:text-dark-text/40">METRIC</div>
@@ -260,16 +286,60 @@ export const ResultModal: React.FC<ResultModalProps> = ({ room, playerId, onPlay
 
                     {/* Simple Stats for Non-FFA */}
                     {room.gameMode !== 'FFA' && (
-                        <div className="flex justify-center gap-6 my-6 bg-light-bg dark:bg-dark-bg p-4 rounded-2xl border border-light-subtle-border dark:border-dark-subtle-border">
-                            <div className="flex flex-col items-center w-24">
-                                <span className="text-4xl font-black text-secondary-accent dark:text-primary-accent">{guessCount}</span>
-                                <span className="text-[10px] uppercase text-light-text/60 dark:text-dark-text/60 font-bold tracking-widest">Guesses</span>
-                            </div>
-                            <div className="w-px bg-light-subtle-border dark:bg-dark-subtle-border"></div>
-                            <div className="flex flex-col items-center w-24">
-                                <span className="text-4xl font-black text-secondary-accent dark:text-primary-accent tracking-wider">{codeToDisplay}</span>
-                                <span className="text-[10px] uppercase text-light-text/60 dark:text-dark-text/60 font-bold tracking-widest">Code</span>
-                            </div>
+                        <div className="flex flex-col gap-4 my-6 bg-light-bg dark:bg-dark-bg p-4 rounded-2xl border border-light-subtle-border dark:border-dark-subtle-border">
+                            {/* Duel PVP: Show both codes with context-aware labels */}
+                            {room.gameMode === 'DUEL' && room.settings.duelModeType === 'PVP' ? (
+                                <>
+                                    <div className="flex justify-center gap-6">
+                                        {/* Left: Opponent's Code (what you were trying to crack) */}
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[10px] uppercase text-light-text/50 dark:text-dark-text/50 font-bold tracking-widest mb-1">
+                                                {isPlayerWinner ? "You Cracked" : "Target Code"}
+                                            </span>
+                                            <span className={`text-3xl font-black tracking-wider font-mono ${isPlayerWinner ? 'text-green-500 dark:text-green-400' : 'text-red-400 dark:text-red-400'}`}>
+                                                {codeToDisplay}
+                                            </span>
+                                            <span className="text-[9px] text-light-text/40 dark:text-dark-text/40 mt-1">
+                                                {opponent?.name}'s code
+                                            </span>
+                                        </div>
+                                        <div className="w-px bg-light-subtle-border dark:bg-dark-subtle-border"></div>
+                                        {/* Right: Your Code (what opponent was trying to crack) */}
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[10px] uppercase text-light-text/50 dark:text-dark-text/50 font-bold tracking-widest mb-1">
+                                                {isPlayerWinner ? "Your Code" : "Got Cracked"}
+                                            </span>
+                                            <span className={`text-3xl font-black tracking-wider font-mono ${isPlayerWinner ? 'text-secondary-accent dark:text-primary-accent' : 'text-orange-500 dark:text-orange-400'}`}>
+                                                {yourCodeInDuel}
+                                            </span>
+                                            <span className="text-[9px] text-light-text/40 dark:text-dark-text/40 mt-1">
+                                                Set by you
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center pt-2 border-t border-light-subtle-border/50 dark:border-dark-subtle-border/50">
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-3xl font-black text-secondary-accent dark:text-primary-accent">{guessCount}</span>
+                                            <span className="text-[10px] uppercase text-light-text/60 dark:text-dark-text/60 font-bold tracking-widest">
+                                                {isPlayerWinner ? "Your Guesses" : `${winnerName}'s Guesses`}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                /* Single / CPU Duel: Show single code */
+                                <div className="flex justify-center gap-6">
+                                    <div className="flex flex-col items-center w-24">
+                                        <span className="text-4xl font-black text-secondary-accent dark:text-primary-accent">{guessCount}</span>
+                                        <span className="text-[10px] uppercase text-light-text/60 dark:text-dark-text/60 font-bold tracking-widest">Guesses</span>
+                                    </div>
+                                    <div className="w-px bg-light-subtle-border dark:bg-dark-subtle-border"></div>
+                                    <div className="flex flex-col items-center w-24">
+                                        <span className="text-4xl font-black text-secondary-accent dark:text-primary-accent tracking-wider">{codeToDisplay}</span>
+                                        <span className="text-[10px] uppercase text-light-text/60 dark:text-dark-text/60 font-bold tracking-widest">Code</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
