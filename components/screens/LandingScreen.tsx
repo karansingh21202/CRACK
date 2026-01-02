@@ -52,7 +52,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onCreateRoom, onJo
     };
 
     return (
-        <div className="w-full h-full flex items-center justify-center p-4">
+        <div className="w-full h-full flex items-center justify-center p-4 pb-safe">
             <Card className="w-full max-w-md p-6 text-center animate-fadeIn shadow-2xl bg-white/95 dark:bg-dark-card/95 backdrop-blur-xl border border-light-subtle-border dark:border-dark-subtle-border overflow-hidden relative">
 
                 {/* Glassmorphism decorative elements */}
