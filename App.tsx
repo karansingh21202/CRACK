@@ -789,7 +789,10 @@ const App: React.FC = () => {
                                         showToast('Screenshot copied/downloaded!', 'info');
                                     }}
                                     onHome={() => {
-                                        // Go to main menu
+                                        // Leave room and go to main menu
+                                        if (room) {
+                                            socketService.leaveRoom(room.id);
+                                        }
                                         setBrScorecard(null);
                                         resetToLanding();
                                     }}

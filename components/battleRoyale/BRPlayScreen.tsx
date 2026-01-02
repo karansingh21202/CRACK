@@ -94,29 +94,29 @@ export const BRPlayScreen: React.FC<BRPlayScreenProps> = ({
     const latestGuess = guessHistory.length > 0 ? guessHistory[guessHistory.length - 1] : null;
 
     return (
-        <div className="w-full h-full flex flex-col bg-gradient-to-br from-[#0a0a0f] via-[#0f1a2e] to-[#0a0a0f] overflow-hidden pb-safe">
+        <div className="w-full h-full flex flex-col bg-gradient-to-br from-gray-50 via-purple-50/30 to-gray-50 dark:from-[#0a0a0f] dark:via-[#0f1a2e] dark:to-[#0a0a0f] overflow-hidden pb-safe">
 
             {/* Header */}
-            <div className="flex items-center justify-between p-3 md:p-4 border-b border-cyan-500/20 shrink-0">
-                <button onClick={onLeave} className="text-white/40 hover:text-white transition-colors p-2">
+            <div className="flex items-center justify-between p-3 md:p-4 border-b border-emerald-200 dark:border-cyan-500/20 shrink-0">
+                <button onClick={onLeave} className="text-gray-400 dark:text-white/40 hover:text-gray-600 dark:hover:text-white transition-colors p-2">
                     <FaArrowLeft size={16} />
                 </button>
 
                 <div className="flex items-center gap-3 md:gap-6">
                     <div className="text-center">
-                        <p className="text-[8px] md:text-[10px] text-white/40 uppercase">Round</p>
-                        <p className="text-lg md:text-2xl font-black text-cyan-400">{roundNumber}</p>
+                        <p className="text-[8px] md:text-[10px] text-gray-500 dark:text-white/40 uppercase">Round</p>
+                        <p className="text-lg md:text-2xl font-black text-emerald-600 dark:text-cyan-400">{roundNumber}</p>
                     </div>
 
-                    <div className={`px-4 md:px-6 py-2 md:py-3 rounded-xl border ${timeLeft <= 10 ? 'border-red-500 bg-red-500/10' : 'border-cyan-500/30 bg-black/40'
+                    <div className={`px-4 md:px-6 py-2 md:py-3 rounded-xl border ${timeLeft <= 10 ? 'border-red-500 bg-red-500/10' : 'border-emerald-300 dark:border-cyan-500/30 bg-white/60 dark:bg-black/40'
                         }`}>
-                        <span className={`text-2xl md:text-3xl font-black font-mono ${timeLeft <= 10 ? 'text-red-500 animate-pulse' : 'text-white'
+                        <span className={`text-2xl md:text-3xl font-black font-mono ${timeLeft <= 10 ? 'text-red-500 animate-pulse' : 'text-gray-800 dark:text-white'
                             }`}>
                             {timeLeft}s
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-2 text-white/60">
+                    <div className="flex items-center gap-2 text-gray-500 dark:text-white/60">
                         <FaUsers size={16} />
                         <span className="font-bold text-base md:text-lg">{playerCount}</span>
                     </div>
@@ -142,8 +142,8 @@ export const BRPlayScreen: React.FC<BRPlayScreenProps> = ({
 
                     {/* Players Solved Counter - Shows how many others have solved */}
                     {!hasSolved && otherPlayers.filter(p => p.hasSolved).length > 0 && (
-                        <div className="bg-amber-500/20 border border-amber-500/40 rounded-xl px-4 py-2 mb-4 animate-pulse">
-                            <span className="text-amber-400 font-bold text-sm">
+                        <div className="bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/40 rounded-xl px-4 py-2 mb-4 animate-pulse">
+                            <span className="text-amber-600 dark:text-amber-400 font-bold text-sm">
                                 ⚡ {otherPlayers.filter(p => p.hasSolved).length} player{otherPlayers.filter(p => p.hasSolved).length > 1 ? 's' : ''} solved! Hurry!
                             </span>
                         </div>
@@ -160,24 +160,24 @@ export const BRPlayScreen: React.FC<BRPlayScreenProps> = ({
                     )}
 
                     {/* Title */}
-                    <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 mb-4 md:mb-6">
+                    <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-teal-500 dark:from-cyan-400 dark:to-purple-500 mb-4 md:mb-6">
                         Crack the Color Code!
                     </h1>
 
                     {/* Last Guess Feedback - BIG AND CLEAR */}
                     {latestGuess && (
                         <div className="mb-6 w-full max-w-sm">
-                            <div className="bg-gradient-to-r from-cyan-900/30 to-purple-900/30 border border-cyan-500/40 rounded-2xl p-4 md:p-5">
-                                <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Last Guess Result</p>
+                            <div className="bg-gradient-to-r from-emerald-100 to-teal-100 dark:from-cyan-900/30 dark:to-purple-900/30 border border-emerald-300 dark:border-cyan-500/40 rounded-2xl p-4 md:p-5">
+                                <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-widest mb-2">Last Guess Result</p>
                                 <div className="flex items-center justify-center gap-4 md:gap-6">
                                     <div className="text-center">
-                                        <p className="text-3xl md:text-4xl font-black text-green-400">{latestGuess.hits}</p>
-                                        <p className="text-xs md:text-sm text-green-400/70">EXACT</p>
+                                        <p className="text-3xl md:text-4xl font-black text-green-600 dark:text-green-400">{latestGuess.hits}</p>
+                                        <p className="text-xs md:text-sm text-green-600/70 dark:text-green-400/70">EXACT</p>
                                     </div>
-                                    <div className="h-10 w-px bg-white/20"></div>
+                                    <div className="h-10 w-px bg-gray-300 dark:bg-white/20"></div>
                                     <div className="text-center">
-                                        <p className="text-3xl md:text-4xl font-black text-yellow-400">{latestGuess.pseudoHits}</p>
-                                        <p className="text-xs md:text-sm text-yellow-400/70">CLOSE</p>
+                                        <p className="text-3xl md:text-4xl font-black text-yellow-500 dark:text-yellow-400">{latestGuess.pseudoHits}</p>
+                                        <p className="text-xs md:text-sm text-yellow-500/70 dark:text-yellow-400/70">CLOSE</p>
                                     </div>
                                 </div>
                             </div>

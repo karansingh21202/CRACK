@@ -105,8 +105,25 @@
       padding-bottom: env(safe-area-inset-bottom, 16px);
     }
 
+    .pt-safe {
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+
+    .px-safe {
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
+    }
+
     .mb-safe {
       margin-bottom: env(safe-area-inset-bottom, 16px);
+    }
+
+    /* Full safe area wrapper */
+    .safe-area-all {
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
     }
 
     /* Premium card hover effects */
@@ -155,7 +172,7 @@
 </head>
 
 <body
-  class="h-full bg-light-bg dark:bg-dark-bg transition-colors duration-300 overflow-hidden selection:bg-secondary-accent/20 dark:selection:bg-primary-accent/20">
+  class="h-full bg-light-bg dark:bg-dark-bg transition-colors duration-300 overflow-hidden selection:bg-secondary-accent/20 dark:selection:bg-primary-accent/20 safe-area-all">
   <div id="root" class="h-full"></div>
   <script type="module" src="/index.tsx"></script>
 </body>
